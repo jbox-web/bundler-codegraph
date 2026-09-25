@@ -1,0 +1,40 @@
+---
+name: Release
+
+permissions: {}
+
+# Run manually from master, once the version bump and the dated CHANGELOG entry
+# are pushed: `bundle exec rake release` builds the gem, creates and pushes the
+# `vX.Y.Z` tag, then pushes the gem to RubyGems.org.
+on:
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: Push gem to RubyGems.org
+    runs-on: ubuntu-latest
+
+    # Releasing from any other branch would tag a commit master does not carry.
+    if: github.ref == 'refs/heads/master'
+
+    permissions:
+      # Trusted Publishing: RubyGems.org trades the OIDC token for a short-lived
+      # API key, so no RubyGems secret is stored in the repository.
+      id-token: write
+      # `rake release` pushes the version tag.
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ruby
+          bundler-cache: true
+
+      - name: Release
+        uses: rubygems/release-gem@v1

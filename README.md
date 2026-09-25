@@ -63,6 +63,13 @@ the indexes.
 Add it to the `Gemfile` of the project whose dependencies you want indexed:
 
 ```ruby
+plugin 'bundler-codegraph'
+```
+
+That pulls the released gem from RubyGems.org. To follow unreleased changes,
+point it at the repository instead:
+
+```ruby
 plugin 'bundler-codegraph', git: 'https://github.com/jbox-web/bundler-codegraph.git', branch: 'master'
 ```
 
