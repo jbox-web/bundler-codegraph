@@ -55,16 +55,16 @@ RSpec.describe Bundler::Codegraph::ErrorLog do
     end
 
     context 'when the log cannot be written' do
+      # Like the real call, opening leaves an empty file behind before the
+      # header write fails. It is created up front: the stub must not touch
+      # the filesystem itself, as `File.write` and `FileUtils.touch` go back
+      # through `File.open` (on TruffleRuby for the former) and would recurse.
       before do
+        FileUtils.mkdir_p(File.dirname(log_path))
+        File.write("#{log_path}.part", '')
         file = instance_double(File, close: nil)
         allow(file).to receive(:puts).and_raise(Errno::ENOSPC)
-        # Like the real call, opening creates the (empty) file before the
-        # header write fails.
-        allow(File).to receive(:open) do |path, *_args, &block|
-          FileUtils.mkdir_p(File.dirname(path))
-          File.write(path, '')
-          block.call(file)
-        end
+        allow(File).to receive(:open).and_yield(file)
       end
 
       it 'still runs the block, without a log' do
