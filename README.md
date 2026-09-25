@@ -176,9 +176,12 @@ Three properties of that indexing pass are deliberate:
   it back when the rebuild fails.
 - *It serializes.* `codegraph` is itself multi-threaded and already saturates
   several cores, so the queue is indexed one gem at a time, and an advisory
-  `flock` on a file in `Dir.tmpdir` keeps two `bundle install` (or a `bundle
-  install` and a `bundle codegraph-index`) running side by side from indexing at
-  once.
+  `flock` keeps two `bundle install` (or a `bundle install` and a `bundle
+  codegraph-index`) running side by side from indexing at once. The lock file
+  sits in a private per-user directory, `bundler-codegraph-<uid>` under
+  `Dir.tmpdir`, created `0700`; when that path is not a directory owned by you
+  and closed to others — someone planted it in a shared `/tmp` — indexing runs
+  unserialized rather than trusting it.
 
 **The `codegraph-index` command.** The catch-up pass for whatever the hooks
 missed — a failed `bundle install`, an index deleted by hand — and it reports a

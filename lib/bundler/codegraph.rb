@@ -2,6 +2,7 @@
 
 require_relative 'codegraph/version'
 require_relative 'codegraph/config'
+require_relative 'codegraph/runtime_dir'
 require_relative 'codegraph/lock'
 require_relative 'codegraph/indexer'
 require_relative 'codegraph/backfill'

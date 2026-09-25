@@ -36,6 +36,12 @@ RSpec.describe Bundler::Codegraph::Lock do
     runs
   end
 
+  describe '.path' do
+    it 'lives in the per-user runtime directory' do
+      expect(described_class.path).to eq(File.join(root, "bundler-codegraph-#{Process.uid}", 'bundler-codegraph.lock'))
+    end
+  end
+
   describe '.synchronize' do
     it 'returns the value of the block' do
       expect(described_class.synchronize { 42 }).to eq(42)
@@ -59,6 +65,22 @@ RSpec.describe Bundler::Codegraph::Lock do
 
       it 'runs the block unserialized' do
         expect(described_class.synchronize { 42 }).to eq(42)
+      end
+    end
+
+    context 'when the runtime directory cannot be trusted' do
+      before do
+        Dir.mkdir(File.join(root, 'elsewhere'), 0o700)
+        File.symlink(File.join(root, 'elsewhere'), File.join(root, "bundler-codegraph-#{Process.uid}"))
+      end
+
+      it 'runs the block unserialized' do
+        expect(described_class.synchronize { 42 }).to eq(42)
+      end
+
+      it 'never creates a lock file through the symlink' do
+        described_class.synchronize { nil }
+        expect(Dir.children(File.join(root, 'elsewhere'))).to be_empty
       end
     end
   end

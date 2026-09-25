@@ -15,18 +15,26 @@ module Bundler
 
       LOCK_FILENAME = 'bundler-codegraph.lock'
 
+      # @return [String, nil] nil when the runtime directory cannot be trusted
       def self.path
-        File.join(Dir.tmpdir, LOCK_FILENAME)
+        dir = RuntimeDir.path
+        dir && File.join(dir, LOCK_FILENAME)
       end
 
-      # Runs the block while holding the exclusive lock. Filesystems without
-      # working advisory locks degrade to running unserialized rather than failing.
+      # Runs the block while holding the exclusive lock. An untrusted runtime
+      # directory, or a filesystem without working advisory locks, degrades to
+      # running unserialized rather than failing.
       #
       # Only opening and locking may fall back: an error raised by the block
       # itself propagates, rather than running the block a second time, unlocked.
-      def self.synchronize
+      def self.synchronize(&)
+        lock_path = path
+        lock_path ? with_lock(lock_path, &) : yield
+      end
+
+      def self.with_lock(lock_path)
         locked = false
-        File.open(path, File::RDWR | File::CREAT, 0o644) do |file|
+        File.open(lock_path, File::RDWR | File::CREAT, 0o600) do |file|
           file.flock(File::LOCK_EX)
           locked = true
           return yield
@@ -36,6 +44,7 @@ module Bundler
 
         yield
       end
+      private_class_method :with_lock
     end
   end
 end
