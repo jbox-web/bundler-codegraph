@@ -29,8 +29,9 @@ locating or understanding code here:
 - `codegraph sync` picks up changes since the last index, `codegraph status`
   reports what is currently indexed.
 
-The repository does not pin the binary — install it separately, see the README.
-It is *not* needed to build or test the plugin either: the specs drive a fake
+`mise.toml` pins the binary for development (`aqua:colbymchenry/codegraph`,
+through the jbox-web aqua registry): `mise install` provides it. It is *not*
+needed to build or test the plugin: the specs drive a fake
 `codegraph` instead, and `bin/rspec` passes with nothing of the sort on `PATH`.
 
 Note that this applies to the plugin's *own* source only. The gems it depends on
