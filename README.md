@@ -214,11 +214,19 @@ shrink the coverage a later `bundle install` is expected to produce.
 Expect an index to weigh roughly **four times the gem's source**: rack 3.2.6 is
 528 kB on disk and produces a 2.1 MB index, built in under a second. Scaled to a
 real application — a ~400-gem bundle — that is a few minutes for the initial
-catch-up pass and somewhere around 600 MB under `.bundle/`. Gems holding no Ruby
+catch-up pass and somewhere around 600 MB next to the gems. Gems holding no Ruby
 source at all are skipped, and the hook skips gems that already carry a
 `.codegraph/` directory, so the steady-state cost after the first pass is only
 whatever `bundle update` brings in. `bundle codegraph-index` syncs those
 existing indexes instead, at a fraction of a second each on a healthy one.
+
+An index lands next to its gem, wherever Bundler installed it. With a
+project-local `BUNDLE_PATH` (`bundle config set --local path .bundle`, as the
+examples above assume) that is the project's `.bundle/`. Without one, gems —
+and so their indexes — live in the Ruby installation's shared `GEM_HOME`, used
+by every project on that Ruby: the 600 MB land there, an index built for one
+project serves the others, and `bundle codegraph-index --force` in one project
+rebuilds them for all. Set `BUNDLE_PATH` to keep the indexes per project.
 
 `.bundle/` is usually already git-ignored; `path:` sources are not, hence the
 `.gitignore` note above.
