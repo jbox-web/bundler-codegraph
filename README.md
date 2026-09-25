@@ -101,6 +101,10 @@ bundle codegraph-index --force  # rebuild all of them
 Without `--force`, an index already in place goes through `codegraph sync`,
 which also completes an index a killed run left partial.
 
+The command exits non-zero on an unknown argument, when the `codegraph` binary
+cannot be found (checked before walking the bundle), and — after trying every
+gem — when any of them failed to index, so a script or a CI job can tell.
+
 Both walk the *resolved* bundle (`Bundler.definition.specs`, minus `bundler`
 itself and minus the project's own gemspec — a gem project declaring `gemspec`
 is not one of its dependencies), not the contents of `.bundle/ruby/*/gems/`.

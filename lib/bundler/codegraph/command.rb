@@ -26,15 +26,55 @@ module Bundler
         failed:          'failed',
       }.freeze
 
+      HELP_FLAGS = %w[--help -h].freeze
+
+      USAGE = <<~USAGE
+        Usage: bundle codegraph-index [--force]
+
+        Indexes every gem of the bundle with codegraph, and syncs the indexes already there.
+
+          --force  rebuild every index from scratch
+      USAGE
+
+      # Exits non-zero (through a `Bundler::BundlerError`) on an unknown
+      # argument, when the binary is missing — before walking the bundle, rather
+      # than reporting every gem as `codegraph not found` — and once every gem
+      # was tried when any of them failed, so a script can tell. `--help` is
+      # what `bundle help codegraph-index` passes.
       def exec(_command_name, args)
-        force = args.include?(FORCE_FLAG)
+        return Bundler.ui.info(USAGE) if args.intersect?(HELP_FLAGS)
 
-        results = Backfill.new(gem_specs, force: force, sync: true, reporter: method(:report)).call
+        force  = force?(args)
+        config = Config.new
+        ensure_executable(config)
+        Codegraph.warn_untrusted_runtime_dir(Bundler.ui, config)
 
+        results = Backfill.new(gem_specs, config: config, force: force, sync: true, reporter: method(:report)).call
         Bundler.ui.info("\n#{summary(results)}")
+        ensure_no_failure(results)
       end
 
       private
+
+      def force?(args)
+        unknown = args - [FORCE_FLAG]
+        raise Bundler::InvalidOption, "Unknown option: #{unknown.join(' ')}" unless unknown.empty?
+
+        args.include?(FORCE_FLAG)
+      end
+
+      def ensure_executable(config)
+        return if config.disabled? || config.executable
+
+        raise Bundler::PluginError, "codegraph not found (#{config.binary})"
+      end
+
+      def ensure_no_failure(results)
+        failed = results[:failed]
+        return if failed.zero?
+
+        raise Bundler::PluginError, "#{failed} gem#{'s' if failed > 1} failed to index"
+      end
 
       def gem_specs
         root = Bundler.root
