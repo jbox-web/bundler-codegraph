@@ -64,7 +64,7 @@ RSpec.describe Bundler::Codegraph::Config do
   end
 
   describe '#binary' do
-    it 'defaults to the binary found on PATH' do
+    it 'defaults to the `codegraph` command name' do
       expect(config.binary).to eq('codegraph')
     end
 
