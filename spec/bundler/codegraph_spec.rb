@@ -90,8 +90,17 @@ RSpec.describe Bundler::Codegraph do
       expect(pending_names).to be_empty
     end
 
-    it 'swallows any error' do
+    it 'ignores an object that is not an install' do
       expect(described_class.after_install(Object.new)).to be_nil
+    end
+
+    it 'swallows an error raised while queueing' do
+      expect(described_class.after_install(install_class.new(Object.new, true), root: root)).to be_nil
+    end
+
+    it 'swallows an error raised while finding the project root' do
+      allow(Bundler).to receive(:root).and_raise(Bundler::GemfileNotFound)
+      expect(described_class.after_install(install_class.new(build_gem('rack'), true))).to be_nil
     end
   end
 

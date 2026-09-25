@@ -32,6 +32,14 @@ RSpec.describe Bundler::Codegraph::RuntimeDir do
       expect(described_class.path).to eq(expected)
     end
 
+    context 'when the directory cannot be created' do
+      before { allow(Dir).to receive(:tmpdir).and_return(File.join(root, 'missing', 'parent')) }
+
+      it 'is nil' do
+        expect(described_class.path).to be_nil
+      end
+    end
+
     context 'when the path is a symlink planted by someone else' do
       before do
         Dir.mkdir(File.join(root, 'elsewhere'), 0o700)

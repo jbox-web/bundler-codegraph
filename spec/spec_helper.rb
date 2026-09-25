@@ -9,6 +9,12 @@ require 'digest'
 # simplecov itself since 1.0, so the `simplecov_json_formatter` gem is not needed.
 SimpleCov.start do
   enable_coverage :branch
+  # Count files no spec loads too, so they show up as uncovered instead of
+  # silently leaving the denominator. `version.rb` is left out: the gemspec
+  # requires it while `bundler/setup` runs, before SimpleCov starts, so it could
+  # only ever read as uncovered.
+  cover '{lib/**/*.rb,plugins.rb}'
+  skip 'lib/bundler/codegraph/version.rb'
   formatter SimpleCov::Formatter::MultiFormatter.new([SimpleCov::Formatter::HTMLFormatter, SimpleCov::Formatter::JSONFormatter])
   skip 'spec/'
 end

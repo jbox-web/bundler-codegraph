@@ -401,6 +401,14 @@ RSpec.describe Bundler::Codegraph::Indexer do
       end
     end
 
+    context 'when something unexpected raises' do
+      before { allow(Bundler::Codegraph::Lock).to receive(:synchronize).and_raise(IOError) }
+
+      it 'reports a failure instead of raising' do
+        expect(indexer.call).to be(:failed)
+      end
+    end
+
     # The interrupt reaches Ruby alone (SIGTERM to the process, not its group):
     # codegraph keeps running unless the indexer stops it. It is raised from
     # the wait, where it lands in real life; a real signal would be trapped by
