@@ -15,5 +15,10 @@ Gem::Specification.new do |s|
 
   s.required_ruby_version = '>= 3.2.0'
 
-  s.files = `git ls-files`.split("\n")
+  # What the plugin needs at run time, plus its docs. Listed rather than taken
+  # from `git ls-files`, which shipped the specs, binstubs and CI config, and
+  # silently produced an empty gem outside a Git checkout. `base:` rather than
+  # `Dir.chdir`, which changes the cwd of the whole process and raises when
+  # another thread is inside a chdir block.
+  s.files = Dir.glob(['lib/**/*.rb', 'plugins.rb', 'README.md', 'CHANGELOG.md', 'LICENSE'], base: __dir__)
 end
