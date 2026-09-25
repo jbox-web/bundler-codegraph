@@ -53,7 +53,7 @@ Four collaborators under `lib/bundler/codegraph/`:
 
 4. **`Backfill`** — walks a set of specs one at a time, tallying statuses. Exists because the hook only fires for gems Bundler *actually installs*: a bundle already in place would otherwise never get an index.
 
-`Command#gem_specs` feeds `Backfill` from `Bundler.definition.specs` minus `bundler` itself. It therefore covers the **resolved** bundle, not the contents of `.bundle/ruby/*/gems/` — stale checkouts and superseded versions sitting on disk are not visited, and an unindexed directory there is expected. Gems from a Git source live in `.bundle/ruby/*/bundler/gems/`; `path:` sources are indexed in place, which means a `path:` source tracked by Git needs `.codegraph` in its `.gitignore`.
+`Command#gem_specs` feeds `Backfill` from `Bundler.definition.specs` filtered through `Bundler::Codegraph.dependency?`, which the hook applies too: it drops `bundler` itself (it lives in the Ruby installation) and any spec whose `full_gem_path` is `Bundler.root` — a project declaring `gemspec` gets its own spec back as a `path:` source, and indexing it would drop a `.codegraph/` at the project root (and `--force` would wipe an index the user maintains there). It therefore covers the **resolved** bundle, not the contents of `.bundle/ruby/*/gems/` — stale checkouts and superseded versions sitting on disk are not visited, and an unindexed directory there is expected. Gems from a Git source live in `.bundle/ruby/*/bundler/gems/`; `path:` sources are indexed in place, which means a `path:` source tracked by Git needs `.codegraph` in its `.gitignore`.
 
 ## Tests
 

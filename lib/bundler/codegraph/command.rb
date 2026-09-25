@@ -36,9 +36,9 @@ module Bundler
 
       private
 
-      # `bundler` itself lives outside the bundle path and is of no interest.
       def gem_specs
-        Bundler.definition.specs.reject { |spec| spec.name == 'bundler' }
+        root = Bundler.root
+        Bundler.definition.specs.select { |spec| Codegraph.dependency?(spec, root) }
       end
 
       def report(name, status)

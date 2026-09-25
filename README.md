@@ -101,12 +101,13 @@ Without `--force`, an index already in place goes through `codegraph sync`,
 which also completes an index a killed run left partial.
 
 Both walk the *resolved* bundle (`Bundler.definition.specs`, minus `bundler`
-itself), not the contents of `.bundle/ruby/*/gems/`. Stale checkouts and older
-versions of a gem sitting next to the one in `Gemfile.lock` are left alone, so
-an unindexed directory down there is expected rather than a missed gem. Gems
-installed from a Git source live in `.bundle/ruby/*/bundler/gems/`, and `path:`
-sources are indexed where they sit — add `.codegraph` to the `.gitignore` of any
-`path:` source tracked by Git.
+itself and minus the project's own gemspec — a gem project declaring `gemspec`
+is not one of its dependencies), not the contents of `.bundle/ruby/*/gems/`.
+Stale checkouts and older versions of a gem sitting next to the one in
+`Gemfile.lock` are left alone, so an unindexed directory down there is expected
+rather than a missed gem. Gems installed from a Git source live in
+`.bundle/ruby/*/bundler/gems/`, and `path:` sources are indexed where they sit —
+add `.codegraph` to the `.gitignore` of any `path:` source tracked by Git.
 
 ## Using the index from an agent
 

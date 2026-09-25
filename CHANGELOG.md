@@ -13,4 +13,5 @@ First release!
 * Turn the plugin into a no-op when the `codegraph` binary is missing, rather than failing the install
 * Run `codegraph` with its stdin on `/dev/null`, so a prompt it would show can never hang `bundle install`
 * Find Ruby sources under a path holding glob metacharacters (`[`, `{`) instead of skipping every gem as `no Ruby source`
+* Leave `bundler` and the project's own gemspec out of both the hook and `bundle codegraph-index`
 * Add the `BUNDLER_CODEGRAPH`, `BUNDLER_CODEGRAPH_EXCLUDE` and `BUNDLER_CODEGRAPH_BIN` environment variables
