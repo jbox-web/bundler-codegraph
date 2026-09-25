@@ -82,16 +82,27 @@ without a commit:
 plugin 'bundler-codegraph', path: '/path/to/bundler-codegraph'
 ```
 
-Bundler installs it into `.bundle/plugin/` on the next `bundle install`. Two
-things to know afterwards:
+Bundler installs it into `.bundle/plugin/` on the next `bundle install`.
 
-- Bundler records the plugin under the source declared here. Change that source
-  — move a `path:` checkout, switch from `path:` to `git:` — and the next
-  `bundle install` fails on a `CommandConflict` until you run `bundle plugin
-  uninstall bundler-codegraph`.
-- A `git:` clone is pinned to the commit resolved at install time, and there is
-  no `bundle plugin update`. Uninstalling and reinstalling is how you move it
-  forward.
+**Every update of the plugin goes through an uninstall.** Bundler reinstalls a
+plugin whenever its path changes — a new release, a new commit fetched by
+`bundle update` on a `git:` source, a moved `path:` checkout, a switch from one
+source to another — but registers the new copy without removing the old one,
+and refuses the `codegraph-index` command the old copy still holds:
+
+```
+Failed to install plugin `bundler-codegraph`, due to Bundler::Plugin::Index::CommandConflict (Command(s) `codegraph-index` declared by bundler-codegraph are already registered.)
+```
+
+That is Bundler's doing (checked on 4.0.17), and it hits any plugin that
+declares a command. Uninstall first, then install again:
+
+```bash
+bundle plugin uninstall bundler-codegraph && bundle install
+```
+
+There is no `bundle plugin update`: this is also how a `git:` clone, pinned to
+the commit resolved at install time, moves forward.
 
 ## Usage
 
