@@ -104,6 +104,8 @@ which also completes an index a killed run left partial.
 The command exits non-zero on an unknown argument, when the `codegraph` binary
 cannot be found (checked before walking the bundle), and — after trying every
 gem — when any of them failed to index, so a script or a CI job can tell.
+`bundle codegraph-index --help` (or `bundle help codegraph-index`) prints its
+usage.
 
 Both walk the *resolved* bundle (`Bundler.definition.specs`, minus `bundler`
 itself and minus the project's own gemspec — a gem project declaring `gemspec`
@@ -111,8 +113,11 @@ is not one of its dependencies), not the contents of `.bundle/ruby/*/gems/`.
 Stale checkouts and older versions of a gem sitting next to the one in
 `Gemfile.lock` are left alone, so an unindexed directory down there is expected
 rather than a missed gem. Gems installed from a Git source live in
-`.bundle/ruby/*/bundler/gems/`, and `path:` sources are indexed where they sit —
-add `.codegraph` to the `.gitignore` of any `path:` source tracked by Git.
+`.bundle/ruby/*/bundler/gems/`, and `path:` sources are indexed where they sit.
+codegraph drops a `.gitignore` inside `.codegraph/` that ignores everything but
+itself, so the database never shows up in Git; that `.gitignore` itself still
+does, as an untracked file — add `.codegraph` to the `.gitignore` of any `path:`
+source tracked by Git to keep its status clean.
 
 ## Using the index from an agent
 
@@ -166,36 +171,51 @@ the rest of the install. Once everything is installed Bundler emits
 queued gem, one at a time, which drops a `.codegraph/` directory next to the
 gem's sources. A `bundle install` that fails never emits that second hook, so
 the gems it did install stay unindexed until `bundle codegraph-index` runs.
-Three properties of that indexing pass are deliberate:
+Each gem it indexes prints a `bundler-codegraph: indexed <gem>` line, so a cold
+install that spends minutes in `codegraph` after Bundler is done does not look
+hung. Three properties of that indexing pass are deliberate:
 
 - *It never raises.* Every outcome — binary missing, no Ruby source, index
   already there, `codegraph` exiting non-zero — comes back as a status symbol
   and is swallowed. An exception raised from a Bundler hook aborts the entire
   `bundle install`, and a failed index is never a good enough reason to break
   someone's install. A gem `codegraph` fails on still gets a one-line warning,
-  pointing at its error output, kept in `bundler-codegraph-<uid>/<gem>.log`
-  under `Dir.tmpdir` until a later run succeeds.
-- *It never leaves a partial index.* `codegraph init` creates `.codegraph/`
-  before it starts indexing, so a run that fails or is interrupted (Ctrl-C
-  included) has its `.codegraph/` removed rather than left for the next run to
-  mistake for a complete index. `--force` sets the previous index aside and puts
-  it back when the rebuild fails.
+  pointing at its error output, kept in
+  `bundler-codegraph-<uid>/<gem directory>-<digest>.log` (`rack-3.2.6-…log`) under
+  `Dir.tmpdir` until a later run succeeds. The hook does not retry that gem on
+  the next `bundle install` — it would pay the same failure every time — and
+  says so in a `skipped` line, until a new version lands in a new directory,
+  `bundle codegraph-index` retries it, or the system purges its temporary
+  directory (macOS does on its own, Linux usually at boot). A `path:` source
+  keeps its directory: after fixing it, run `bundle codegraph-index`. An interrupted run
+  (codegraph is stopped before the cleanup, killed if it ignores TERM), a `codegraph` killed by a signal
+  (the OOM killer) or one that could not even start is not a failure: no log is
+  kept, and the gem is tried again next time.
+- *It never leaves a partial index.* An index is a `.codegraph/codegraph.db`,
+  and `codegraph init` creates `.codegraph/` before it starts indexing, so a run
+  that fails or is interrupted (Ctrl-C included) has its `.codegraph/` removed
+  rather than left for the next run to mistake for a complete index; a bare
+  `.codegraph/` without its database is such a leftover, and is rebuilt.
+  `--force` sets the previous index aside and puts it back when the rebuild
+  fails — or on the next run, when the rebuild was killed outright.
 - *It serializes.* `codegraph` is itself multi-threaded and already saturates
   several cores, so the queue is indexed one gem at a time, and an advisory
   `flock` keeps two `bundle install` (or a `bundle install` and a `bundle
   codegraph-index`) running side by side from indexing at once. The lock file
   sits in a private per-user directory, `bundler-codegraph-<uid>` under
-  `Dir.tmpdir`, created `0700`; when that path is not a directory owned by you
-  and closed to others — someone planted it in a shared `/tmp` — indexing runs
-  unserialized rather than trusting it.
+  `Dir.tmpdir`, created `0700` (and closed again if it is yours but was left
+  open); when that path is not a directory owned by you — someone planted it
+  in a shared `/tmp` — indexing runs unserialized and without error logs
+  rather than trusting it, and both the hook and `bundle codegraph-index` say
+  so.
 
 **The `codegraph-index` command.** The catch-up pass for whatever the hooks
 missed — a failed `bundle install`, an index deleted by hand — and it reports a
 per-gem status so it is obvious what was skipped and why. It is also the repair
-pass: it runs
-`codegraph sync` on every index already there, which completes one a killed
-`bundle install` left partial — something the hook cannot see, since it skips
-existing indexes to keep `bundle install` fast.
+pass: it runs `codegraph sync` on every index already there, which completes
+one a killed `bundle install` left partial — something the hook cannot see,
+since it skips existing indexes to keep `bundle install` fast — and it retries
+the gems the hook stopped retrying after a failure.
 
 ## Configuration
 
@@ -215,9 +235,9 @@ Expect an index to weigh roughly **four times the gem's source**: rack 3.2.6 is
 528 kB on disk and produces a 2.1 MB index, built in under a second. Scaled to a
 real application — a ~400-gem bundle — that is a few minutes for the initial
 catch-up pass and somewhere around 600 MB next to the gems. Gems holding no Ruby
-source at all are skipped, and the hook skips gems that already carry a
-`.codegraph/` directory, so the steady-state cost after the first pass is only
-whatever `bundle update` brings in. `bundle codegraph-index` syncs those
+source at all are skipped, and the hook skips gems that already carry an index
+(`.codegraph/codegraph.db`), so the steady-state cost after the first pass is
+only whatever `bundle update` brings in. `bundle codegraph-index` syncs those
 existing indexes instead, at a fraction of a second each on a healthy one.
 
 An index lands next to its gem, wherever Bundler installed it. With a
