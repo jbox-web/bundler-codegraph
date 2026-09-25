@@ -4,9 +4,6 @@ require 'simplecov'
 require 'digest'
 
 # Start SimpleCov
-#
-# The JSON report is what the CI publishes to qlty; `JSONFormatter` ships with
-# simplecov itself since 1.0, so the `simplecov_json_formatter` gem is not needed.
 SimpleCov.start do
   enable_coverage :branch
   # Count files no spec loads too, so they show up as uncovered instead of
