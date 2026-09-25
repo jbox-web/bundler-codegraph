@@ -81,8 +81,10 @@ module Bundler
       end
 
       # Stops at the first hit instead of materializing the whole file list.
+      # The path goes through `base:`, never into the pattern: a checkout under
+      # a directory named `client [2026]` would otherwise match nothing.
       def ruby_sources?
-        Dir.glob(File.join(path, '**', '*.rb')) { |_file| return true }
+        Dir.glob('**/*.rb', base: path) { |_file| return true }
         false
       end
 

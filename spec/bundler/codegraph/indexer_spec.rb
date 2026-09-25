@@ -49,6 +49,26 @@ RSpec.describe Bundler::Codegraph::Indexer do
       expect(File.exist?(File.join(index, 'codegraph.db'))).to be(true)
     end
 
+    context 'when the gem path holds glob metacharacters' do
+      let(:gem_path) { File.join(root, 'client [2026] {x}', 'dummy-1.0.0') }
+
+      it 'still finds its Ruby source' do
+        expect(indexer.call).to be(:indexed)
+      end
+    end
+
+    context 'when the Ruby source only sits in a subdirectory' do
+      before do
+        FileUtils.rm(File.join(gem_path, 'dummy.rb'))
+        FileUtils.mkdir_p(File.join(gem_path, 'lib', 'dummy'))
+        File.write(File.join(gem_path, 'lib', 'dummy', 'version.rb'), '')
+      end
+
+      it 'still finds it' do
+        expect(indexer.call).to be(:indexed)
+      end
+    end
+
     context 'when indexing is disabled' do
       let(:env) { super().merge('BUNDLER_CODEGRAPH' => 'off') }
 
