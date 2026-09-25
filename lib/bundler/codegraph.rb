@@ -13,22 +13,51 @@ module Bundler
   # --path <gem>` instead of reading its files by hand.
   module Codegraph
 
-    # Entry point wired to Bundler's `after-install` hook.
+    # Specs queued by `after_install`, drained by `after_install_all`. A
+    # `Thread::Queue` because Bundler fires `after-install` from each of its
+    # parallel install workers.
+    @pending = Queue.new
+
+    class << self
+      attr_reader :pending
+    end
+
+    # Entry point wired to Bundler's `after-install` hook, which fires from the
+    # install workers themselves. Indexing there would hold a worker for as long
+    # as `codegraph` runs, and stall the rest of the install behind it: the gem
+    # is only queued, and `after_install_all` indexes the queue once installing
+    # is over.
     #
     # Swallows everything: the hook also fires for failed installs, and a broken
     # index must never be the reason a `bundle install` aborts.
     #
     # @param spec_install [Bundler::ParallelInstaller::SpecInstallation]
-    # @param root [Pathname, String] root of the project being installed
-    # @param config [Config]
-    # @return [Symbol, nil] the indexing status, nil when the gem was skipped
-    def self.after_install(spec_install, root: Bundler.root, config: Config.new)
+    # @param root [Pathname, String, nil] root of the project being installed,
+    #   `Bundler.root` by default — resolved in the body, where the rescue
+    #   covers it, never as a keyword default, which is evaluated outside it
+    # @return [nil]
+    def self.after_install(spec_install, root: nil)
       return unless spec_install.respond_to?(:installed?) && spec_install.installed?
 
       spec = spec_install.spec
-      return unless dependency?(spec, root)
+      pending << spec if dependency?(spec, root || Bundler.root)
+      nil
+    rescue StandardError
+      nil
+    end
 
-      Indexer.new(spec.full_gem_path, name: spec.name, config: config).call
+    # Entry point wired to Bundler's `after-install-all` hook, fired once every
+    # gem is installed — and not at all when the install fails, in which case
+    # `bundle codegraph-index` picks up whatever was left unindexed.
+    #
+    # Swallows everything, for the same reason as `after_install`.
+    #
+    # @param config [Config]
+    # @return [Hash{Symbol => Integer}, nil] number of gems per resulting status
+    def self.after_install_all(config: Config.new)
+      specs = []
+      specs << pending.pop until pending.empty?
+      Backfill.new(specs, config: config).call
     rescue StandardError
       nil
     end

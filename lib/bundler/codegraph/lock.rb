@@ -5,13 +5,12 @@ require 'tmpdir'
 module Bundler
   module Codegraph
 
-    # Serializes indexing across Bundler's parallel install workers.
+    # Serializes indexing across processes.
     #
-    # `codegraph` already saturates several cores on its own, and Bundler runs
-    # `after-install` from each worker (see `Bundler::ParallelInstaller#do_install`),
-    # so without this lock a cold `bundle install` would spawn BUNDLE_JOBS
-    # indexers at once. An advisory file lock also covers the case where several
-    # `bundle install` run side by side.
+    # `codegraph` already saturates several cores on its own. Within one
+    # `bundle install` the queue is drained one gem at a time; this advisory
+    # file lock covers several `bundle install` (or a `bundle codegraph-index`)
+    # running side by side.
     module Lock
 
       LOCK_FILENAME = 'bundler-codegraph.lock'

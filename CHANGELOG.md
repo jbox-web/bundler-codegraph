@@ -4,9 +4,9 @@
 
 First release!
 
-* Index every gem right after Bundler installs it, through the `after-install` hook
+* Index every gem of the bundle at the end of `bundle install`: `after-install` queues each gem, `after-install-all` indexes the queue, so indexing never holds up an install worker
 * Add the `bundle codegraph-index [--force]` command to catch up on an already installed bundle
-* Serialize indexing through an advisory file lock, so parallel install workers do not run several indexers at once
+* Serialize indexing through an advisory file lock, so concurrent `bundle install` runs do not run several indexers at once
 * Skip gems carrying no Ruby source, and have the hook skip gems already holding a `.codegraph/` directory
 * Sync existing indexes from `bundle codegraph-index`, which completes one a killed run left partial
 * Remove the `.codegraph/` directory of a failed or interrupted run, and restore the previous index when a `--force` rebuild fails

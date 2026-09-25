@@ -88,7 +88,8 @@ things to know afterwards:
 
 ## Usage
 
-Nothing to run: each gem is indexed right after Bundler installs it.
+Nothing to run: every gem of the bundle is indexed at the end of each
+`bundle install`.
 
 A bundle that is already in place needs one catch-up pass:
 
@@ -148,13 +149,20 @@ retry.
 
 ## How it works
 
-`plugins.rb` registers two things with Bundler, and is the only file in the
-repository that touches Bundler's plugin API.
+`plugins.rb` registers two hooks and a command with Bundler, and is the only
+file in the repository that touches Bundler's plugin API.
 
-**The `after-install` hook.** Bundler emits `GEM_AFTER_INSTALL` once per gem. The
-plugin checks the install actually succeeded, then runs `codegraph init <gem
-path>`, which drops a `.codegraph/` directory next to the gem's sources. Two
-properties of that hook are deliberate:
+**The install hooks.** Bundler emits `GEM_AFTER_INSTALL` once per gem, from the
+install worker that handled it — on Bundler 4 (checked on 4.0.17) for every gem
+of the bundle on every `bundle install`, whether it was just installed or
+already there. The plugin checks the install succeeded and only queues the gem:
+indexing from the worker would hold it for as long as `codegraph` runs and stall
+the rest of the install. Once everything is installed Bundler emits
+`GEM_AFTER_INSTALL_ALL`, and the plugin runs `codegraph init <gem path>` on each
+queued gem, one at a time, which drops a `.codegraph/` directory next to the
+gem's sources. A `bundle install` that fails never emits that second hook, so
+the gems it did install stay unindexed until `bundle codegraph-index` runs.
+Three properties of that indexing pass are deliberate:
 
 - *It never raises.* Every outcome — binary missing, no Ruby source, index
   already there, `codegraph` exiting non-zero — comes back as a status symbol
@@ -166,18 +174,16 @@ properties of that hook are deliberate:
   included) has its `.codegraph/` removed rather than left for the next run to
   mistake for a complete index. `--force` sets the previous index aside and puts
   it back when the rebuild fails.
-- *It serializes.* Bundler calls the hook from each of its `BUNDLE_JOBS`
-  parallel install workers, and `codegraph` is itself multi-threaded and already
-  saturates several cores. Left alone, a cold `bundle install` would start a
-  dozen indexers at once. An advisory `flock` on a file in `Dir.tmpdir` keeps it
-  to one at a time — and, being filesystem-wide, also covers two `bundle
-  install` running side by side.
+- *It serializes.* `codegraph` is itself multi-threaded and already saturates
+  several cores, so the queue is indexed one gem at a time, and an advisory
+  `flock` on a file in `Dir.tmpdir` keeps two `bundle install` (or a `bundle
+  install` and a `bundle codegraph-index`) running side by side from indexing at
+  once.
 
-**The `codegraph-index` command.** The hook only fires for gems Bundler
-*actually installs*, which means a bundle already sitting on disk — the usual
-case when the plugin is added to an existing project — would never get a single
-index. The command is the catch-up pass, and reports a per-gem status so it is
-obvious what was skipped and why. It is also the repair pass: it runs
+**The `codegraph-index` command.** The catch-up pass for whatever the hooks
+missed — a failed `bundle install`, an index deleted by hand — and it reports a
+per-gem status so it is obvious what was skipped and why. It is also the repair
+pass: it runs
 `codegraph sync` on every index already there, which completes one a killed
 `bundle install` left partial — something the hook cannot see, since it skips
 existing indexes to keep `bundle install` fast.

@@ -54,31 +54,68 @@ RSpec.describe Bundler::Codegraph do
   end
 
   describe '.after_install' do
+    before { described_class.pending.clear }
+
     def after_install(spec, installed: true)
-      described_class.after_install(install_class.new(spec, installed), root: root, config: config)
+      described_class.after_install(install_class.new(spec, installed), root: root)
     end
 
-    it 'indexes a freshly installed gem' do
-      expect(after_install(build_gem('rack'))).to be(:indexed)
+    def pending_names
+      Array.new(described_class.pending.size) { described_class.pending.pop }.map(&:name)
+    end
+
+    it 'queues a freshly installed gem' do
+      after_install(build_gem('rack'))
+      expect(pending_names).to eq(['rack'])
+    end
+
+    it 'leaves the indexing to after_install_all' do
+      after_install(build_gem('rack'))
+      expect(File.exist?(log)).to be(false)
     end
 
     it 'ignores a gem whose install failed' do
-      expect(after_install(build_gem('rack'), installed: false)).to be_nil
+      after_install(build_gem('rack'), installed: false)
+      expect(pending_names).to be_empty
     end
 
     it 'ignores bundler itself' do
       after_install(build_gem('bundler'))
-      expect(File.exist?(log)).to be(false)
+      expect(pending_names).to be_empty
     end
 
     it "ignores the project's own gemspec" do
-      File.write(File.join(root, 'app.rb'), '')
       after_install(spec_class.new('app', root))
-      expect(File.exist?(log)).to be(false)
+      expect(pending_names).to be_empty
     end
 
     it 'swallows any error' do
       expect(described_class.after_install(Object.new)).to be_nil
+    end
+  end
+
+  describe '.after_install_all' do
+    before { described_class.pending.clear }
+
+    it 'indexes every queued gem' do
+      described_class.pending << build_gem('rack') << build_gem('rake')
+      expect(described_class.after_install_all(config: config)).to eq(indexed: 2)
+    end
+
+    it 'empties the queue' do
+      described_class.pending << build_gem('rack')
+      described_class.after_install_all(config: config)
+      expect(described_class.pending).to be_empty
+    end
+
+    it 'does nothing when nothing was queued' do
+      described_class.after_install_all(config: config)
+      expect(File.exist?(log)).to be(false)
+    end
+
+    it 'swallows any error' do
+      described_class.pending << Object.new
+      expect(described_class.after_install_all(config: config)).to be_nil
     end
   end
 end
