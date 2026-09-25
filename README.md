@@ -168,7 +168,9 @@ Three properties of that indexing pass are deliberate:
   already there, `codegraph` exiting non-zero — comes back as a status symbol
   and is swallowed. An exception raised from a Bundler hook aborts the entire
   `bundle install`, and a failed index is never a good enough reason to break
-  someone's install.
+  someone's install. A gem `codegraph` fails on still gets a one-line warning,
+  pointing at its error output, kept in `bundler-codegraph-<uid>/<gem>.log`
+  under `Dir.tmpdir` until a later run succeeds.
 - *It never leaves a partial index.* `codegraph init` creates `.codegraph/`
   before it starts indexing, so a run that fails or is interrupted (Ctrl-C
   included) has its `.codegraph/` removed rather than left for the next run to

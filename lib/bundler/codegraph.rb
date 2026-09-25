@@ -3,7 +3,9 @@
 require_relative 'codegraph/version'
 require_relative 'codegraph/config'
 require_relative 'codegraph/runtime_dir'
+require_relative 'codegraph/error_log'
 require_relative 'codegraph/lock'
+require_relative 'codegraph/subprocess'
 require_relative 'codegraph/indexer'
 require_relative 'codegraph/backfill'
 
@@ -51,16 +53,60 @@ module Bundler
     # gem is installed — and not at all when the install fails, in which case
     # `bundle codegraph-index` picks up whatever was left unindexed.
     #
-    # Swallows everything, for the same reason as `after_install`.
+    # Swallows everything, for the same reason as `after_install`, but warns
+    # about each gem that failed to index, pointing at codegraph's error output.
     #
-    # @param config [Config]
+    # @param config [Config, nil] read from the environment by default
+    # @param shell [#warn, nil] Bundler's UI by default; both are resolved in
+    #   the body, where the rescue covers them
     # @return [Hash{Symbol => Integer}, nil] number of gems per resulting status
-    def self.after_install_all(config: Config.new)
+    def self.after_install_all(config: nil, shell: nil)
+      config ||= Config.new
+      shell  ||= Bundler.ui
       specs = []
       specs << pending.pop until pending.empty?
-      Backfill.new(specs, config: config).call
+      warn_untrusted_runtime_dir(shell, config) unless specs.empty?
+      # Bundler fires `after-install` for every gem on every `bundle install`:
+      # a gem codegraph fails on is not retried each time, only once it changes
+      # or when `bundle codegraph-index` runs.
+      Backfill.new(specs, config: config, skip_failed: true, reporter: reporter_for(shell)).call
     rescue StandardError
       nil
+    end
+
+    # One line per gem actually indexed — a cold install can spend minutes in
+    # codegraph after Bundler is done — one per gem skipped after an earlier
+    # failure, so it is never left unindexed without a word, and a warning
+    # per new failure. Printing may fail (`bundle install | head` closes the
+    # pipe); that must not cost the rest of the queue.
+    def self.reporter_for(shell)
+      lambda do |name, status, log_hint|
+        report(shell, name, status, log_hint)
+      rescue StandardError
+        nil
+      end
+    end
+    private_class_method :reporter_for
+
+    def self.report(shell, name, status, log_hint)
+      case status
+      when :indexed then shell.info("bundler-codegraph: indexed #{name}")
+      when :failed_before
+        shell.info("bundler-codegraph: skipped #{name}, codegraph failed on it before; " \
+                   '`bundle codegraph-index` retries it')
+      when :failed then shell.warn("bundler-codegraph: indexing #{name} failed#{log_hint}")
+      end
+    end
+    private_class_method :report
+
+    # Without a trusted runtime directory the lock and the error logs are both
+    # off; say so once rather than let it pass unnoticed — as long as there is
+    # any indexing to run at all.
+    def self.warn_untrusted_runtime_dir(shell, config)
+      return if config.disabled? || !config.executable || RuntimeDir.path
+
+      shell.warn("bundler-codegraph: #{RuntimeDir.candidate} is not a private directory, " \
+                 'so indexing runs unserialized and without error logs')
     end
 
     # Whether a spec of the bundle is a dependency worth indexing. `bundler`

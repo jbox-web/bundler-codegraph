@@ -24,6 +24,7 @@ RSpec.describe Bundler::Codegraph::Command do
   let(:specs)      { [build_gem('rack'), build_gem('bundler'), spec_class.new('app', root)] }
 
   before do
+    allow(Dir).to receive(:tmpdir).and_return(root)
     Dir.mkdir(bin_path)
     File.write(File.join(root, 'app.rb'), '')
     build_fake_codegraph(bin_path, log: log)
@@ -56,6 +57,16 @@ RSpec.describe Bundler::Codegraph::Command do
     it 'prints a summary' do
       command.exec('codegraph-index', [])
       expect(ui).to have_received(:info).with("\n1 indexed")
+    end
+
+    context 'when codegraph fails on a gem' do
+      before { build_fake_codegraph(bin_path, log: log, exit_status: 1) }
+
+      it 'points at the error log' do
+        command.exec('codegraph-index', [])
+        expect(ui).to have_received(:info)
+          .with("rack: failed, see #{error_log_for(root, File.join(root, 'gems', 'rack'))}")
+      end
     end
   end
 end

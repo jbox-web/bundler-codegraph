@@ -20,6 +20,7 @@ RSpec.describe Bundler::Codegraph do
   let(:install_class) { Struct.new(:spec, :installed?) }
 
   before do
+    allow(Dir).to receive(:tmpdir).and_return(root)
     Dir.mkdir(bin_path)
     build_fake_codegraph(bin_path, log: log)
   end
@@ -95,27 +96,135 @@ RSpec.describe Bundler::Codegraph do
   end
 
   describe '.after_install_all' do
+    let(:ui) { instance_double(Bundler::UI::Shell, warn: nil, info: nil) }
+
     before { described_class.pending.clear }
+
+    def after_install_all
+      described_class.after_install_all(config: config, shell: ui)
+    end
 
     it 'indexes every queued gem' do
       described_class.pending << build_gem('rack') << build_gem('rake')
-      expect(described_class.after_install_all(config: config)).to eq(indexed: 2)
+      expect(after_install_all).to eq(indexed: 2)
     end
 
     it 'empties the queue' do
       described_class.pending << build_gem('rack')
-      described_class.after_install_all(config: config)
+      after_install_all
       expect(described_class.pending).to be_empty
     end
 
     it 'does nothing when nothing was queued' do
-      described_class.after_install_all(config: config)
+      after_install_all
       expect(File.exist?(log)).to be(false)
     end
 
-    it 'swallows any error' do
-      described_class.pending << Object.new
+    it 'stays quiet when every gem got indexed' do
+      described_class.pending << build_gem('rack')
+      after_install_all
+      expect(ui).not_to have_received(:warn)
+    end
+
+    it 'keeps indexing when printing fails, e.g. on a closed pipe' do
+      allow(ui).to receive(:info).and_raise(Errno::EPIPE)
+      described_class.pending << build_gem('rack') << build_gem('rake')
+      expect(after_install_all).to eq(indexed: 2)
+    end
+
+    it 'reports each gem it indexes, as it goes' do
+      described_class.pending << build_gem('rack')
+      after_install_all
+      expect(ui).to have_received(:info).with('bundler-codegraph: indexed rack')
+    end
+
+    context 'when the runtime directory cannot be trusted' do
+      before do
+        Dir.mkdir(File.join(root, 'elsewhere'), 0o700)
+        File.symlink(File.join(root, 'elsewhere'), File.join(root, "bundler-codegraph-#{Process.uid}"))
+        described_class.pending << build_gem('rack') << build_gem('rake')
+      end
+
+      it 'says nothing when indexing is disabled' do
+        described_class.after_install_all(config: Bundler::Codegraph::Config.new(env: { 'BUNDLER_CODEGRAPH' => 'off' }),
+                                          shell:  ui)
+        expect(ui).not_to have_received(:warn)
+      end
+
+      it 'says nothing when codegraph is not installed' do
+        described_class.after_install_all(config: Bundler::Codegraph::Config.new(env: { 'PATH' => root }), shell: ui)
+        expect(ui).not_to have_received(:warn)
+      end
+
+      it 'warns once that indexing runs unserialized and without error logs' do
+        after_install_all
+        expect(ui).to have_received(:warn).once.with(
+          "bundler-codegraph: #{root}/bundler-codegraph-#{Process.uid} is not a private directory, " \
+          'so indexing runs unserialized and without error logs'
+        )
+      end
+    end
+
+    it 'counts a spec that cannot even be read as a failure, and goes on' do
+      described_class.pending << Object.new << build_gem('rack')
+      expect(after_install_all).to eq(failed: 1, indexed: 1)
+    end
+
+    it "swallows an error raised while reaching Bundler's UI" do
+      allow(Bundler).to receive(:ui).and_raise(Bundler::GemfileNotFound)
       expect(described_class.after_install_all(config: config)).to be_nil
+    end
+
+    context 'when codegraph fails on a gem' do
+      before do
+        build_fake_codegraph(bin_path, log: log, exit_status: 1)
+        described_class.pending << build_gem('rack')
+      end
+
+      it 'warns about it, pointing at the error log' do
+        after_install_all
+        expect(ui).to have_received(:warn)
+          .with("bundler-codegraph: indexing rack failed, see #{error_log_for(root, File.join(root, 'gems', 'rack'))}")
+      end
+    end
+
+    context 'when a gem fails before codegraph runs, next to an older error log' do
+      before do
+        stale = error_log_for(root, File.join(root, 'gems', 'rack'))
+        FileUtils.mkdir_p(File.dirname(stale), mode: 0o700)
+        File.write(stale, "#{File.join(root, 'elsewhere', 'rack')}\nan older failure\n")
+        allow(Bundler::Codegraph::Lock).to receive(:synchronize).and_raise(IOError)
+        described_class.pending << build_gem('rack')
+      end
+
+      it 'does not point at that log' do
+        after_install_all
+        expect(ui).to have_received(:warn).with('bundler-codegraph: indexing rack failed')
+      end
+    end
+
+    context 'when codegraph failed on a gem during an earlier install' do
+      before do
+        build_fake_codegraph(bin_path, log: log, exit_status: 1)
+        described_class.pending << build_gem('rack')
+        after_install_all
+        described_class.pending << spec_class.new('rack', File.join(root, 'gems', 'rack'))
+      end
+
+      it 'does not retry it' do
+        expect(after_install_all).to eq(failed_before: 1)
+      end
+
+      it 'does not warn about it again' do
+        after_install_all
+        expect(ui).to have_received(:warn).once
+      end
+
+      it 'says it skipped it, and how to retry' do
+        after_install_all
+        expect(ui).to have_received(:info)
+          .with('bundler-codegraph: skipped rack, codegraph failed on it before; `bundle codegraph-index` retries it')
+      end
     end
   end
 end

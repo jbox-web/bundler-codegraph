@@ -16,7 +16,7 @@ module Bundler
       DATABASE_NAME  = 'codegraph.db'
       BACKUP_DIRNAME = '.codegraph.bundler-codegraph-backup'
 
-      attr_reader :path, :name, :config, :force, :sync
+      attr_reader :path, :name, :config, :force, :sync, :skip_failed
 
       # @param path [String] absolute path of the directory to index
       # @param name [String] gem name, used for the exclusion patterns
@@ -24,24 +24,39 @@ module Bundler
       # @param force [Boolean] drop and rebuild an existing index
       # @param sync [Boolean] run `codegraph sync` on an existing index instead
       #   of skipping it, which also completes an index a killed run left behind
-      def initialize(path, name:, config: Config.new, force: false, sync: false)
-        @path       = path.to_s
-        @name       = name.to_s
-        @config     = config
-        @force      = force
-        @sync       = sync
-        @executable = nil
+      # @param skip_failed [Boolean] skip a directory codegraph already failed
+      #   on, as long as its error log is there
+      # rubocop:disable-next Metrics/ParameterLists
+      def initialize(path, name:, config: Config.new, force: false, sync: false, skip_failed: false)
+        @path        = path.to_s
+        @name        = name.to_s
+        @config      = config
+        @force       = force
+        @sync        = sync
+        @skip_failed = skip_failed
+        @error_log   = nil
       end
 
       # @return [Symbol] :indexed, :synced, :failed, :disabled, :excluded,
-      #   :missing, :no_ruby, :already_indexed or :unavailable
+      #   :missing, :failed_before, :no_ruby, :already_indexed or :unavailable
       def call
         skipped = skip_reason
         return skipped if skipped
 
-        Lock.synchronize { run }
+        Lock.synchronize do
+          error_log.discard
+          run
+        end
       rescue StandardError
         :failed
+      end
+
+      # Where to find codegraph's error output after `call`, as a suffix for a
+      # failure message (see `ErrorLog#hint`).
+      #
+      # @return [String]
+      def log_hint
+        @error_log ? @error_log.hint : ''
       end
 
       # Same criterion as codegraph itself: a `.codegraph/` directory without
@@ -69,6 +84,7 @@ module Bundler
         return :missing         unless Dir.exist?(path)
         return :already_indexed if keep_index?
         return :unavailable     unless executable
+        return :failed_before   if skip_failed && error_log.failed_before?
         return :no_ruby         unless ruby_sources?
 
         nil
@@ -89,22 +105,7 @@ module Bundler
       end
 
       def executable
-        @executable ||= which(config.binary)
-      end
-
-      def which(binary)
-        return binary if binary.include?(File::SEPARATOR) && runnable?(binary)
-
-        config.env.fetch('PATH', '').split(File::PATH_SEPARATOR).each do |dir|
-          candidate = File.join(dir, binary)
-          return candidate if runnable?(candidate)
-        end
-
-        nil
-      end
-
-      def runnable?(candidate)
-        File.file?(candidate) && File.executable?(candidate)
+        config.executable
       end
 
       # Checks for an index again: another process may have built it while this
@@ -158,8 +159,18 @@ module Bundler
       # watching disabled, a Git checkout), and with its output going to
       # /dev/null the question would be invisible and `bundle install` would
       # hang on it. At EOF the prompt is cancelled and codegraph moves on.
+      # stderr goes to the gem's `ErrorLog`, kept only when the run fails.
       def codegraph(command)
-        system(executable, command, path, in: File::NULL, out: File::NULL, err: File::NULL)
+        error_log.capture { |stderr| Subprocess.run([executable, command, path], stderr) }
+      end
+
+      # The log of an earlier run is discarded once this one holds the lock
+      # (see `call`) — never earlier, where it could be another process's log
+      # still being written — so a log that exists afterwards always holds codegraph's
+      # output from this run — never a stale one, when this run failed before
+      # codegraph even ran.
+      def error_log
+        @error_log ||= ErrorLog.new(path)
       end
 
       def index_path

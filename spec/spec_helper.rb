@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'simplecov'
+require 'digest'
 
 # Start SimpleCov
 #
@@ -36,9 +37,12 @@ end
 # told to fail, like the real binary does), so the indexer can be exercised end
 # to end without the real binary.
 #
-# `probe_stdin` makes `init` read one line from its standard input and log it,
-# which is how a spec can tell whether the indexer hands its own stdin over.
-def build_fake_codegraph(dir, log:, exit_status: 0, probe_stdin: false)
+# `stderr` is written to the error stream before exiting. `probe_stdin` makes
+# `init` read one line from its standard input and log it, which is how a spec
+# can tell whether the indexer hands its own stdin over. `hang` makes `init`
+# write its pid to `<log>.pid` and wait; `self_kill` makes it die of SIGKILL.
+# rubocop:disable-next Metrics/ParameterLists
+def build_fake_codegraph(dir, log:, exit_status: 0, stderr: nil, probe_stdin: false, hang: false, self_kill: false)
   path = File.join(dir, 'codegraph')
   File.write(path, <<~SHELL)
     #!/bin/sh
@@ -46,7 +50,10 @@ def build_fake_codegraph(dir, log:, exit_status: 0, probe_stdin: false)
     if [ "$1" = "init" ]; then
       mkdir -p "$2/.codegraph" && : > "$2/.codegraph/codegraph.db"
       #{probe_stdin ? %(IFS= read -r line && echo "stdin:$line" >> "#{log}") : ':'}
+      #{hang ? %(echo $$ > "#{log}.pid" && exec sleep 30) : ':'}
+      #{self_kill ? 'kill -KILL $$' : ':'}
     fi
+    #{stderr ? %(echo "#{stderr}" >&2) : ':'}
     exit #{exit_status}
   SHELL
   File.chmod(0o755, path)
@@ -54,6 +61,13 @@ def build_fake_codegraph(dir, log:, exit_status: 0, probe_stdin: false)
 end
 
 RSpec::Matchers.define_negated_matcher :not_change, :change
+
+# Where ErrorLog keeps the log of a gem directory: `<basename>-<digest>.log`,
+# the digest of the full path telling apart two directories of the same name.
+def error_log_for(root, gem_path)
+  digest = Digest::SHA256.hexdigest(gem_path)[0, 12]
+  File.join(root, "bundler-codegraph-#{Process.uid}", "#{File.basename(gem_path)}-#{digest}.log")
+end
 
 # Load our gem
 require 'bundler/codegraph'

@@ -23,7 +23,10 @@ RSpec.describe Bundler::Codegraph::Backfill do
   let(:spec_class) { Struct.new(:name, :full_gem_path) }
   let(:specs)      { [build_spec('alpha'), build_spec('beta'), spec_class.new('ghost', File.join(root, 'ghost'))] }
 
-  before { build_fake_codegraph(bin_path, log: log) }
+  before do
+    allow(Dir).to receive(:tmpdir).and_return(root)
+    build_fake_codegraph(bin_path, log: log)
+  end
 
   def build_spec(name)
     path = File.join(root, name)
@@ -37,6 +40,11 @@ RSpec.describe Bundler::Codegraph::Backfill do
       expect(backfill.call).to eq(indexed: 2, missing: 1)
     end
 
+    it 'goes on past a spec that cannot even be read' do
+      broken = Object.new
+      expect(described_class.new([broken, *specs], config: config).call).to eq(failed: 1, indexed: 2, missing: 1)
+    end
+
     it 'indexes every gem holding Ruby source' do
       backfill.call
       expect(File.read(log).lines.size).to eq(2)
@@ -44,7 +52,8 @@ RSpec.describe Bundler::Codegraph::Backfill do
 
     it 'reports progress for each spec' do
       reported = []
-      described_class.new(specs, config: config, reporter: ->(name, status) { reported << [name, status] }).call
+      reporter = ->(name, status, _log_hint) { reported << [name, status] }
+      described_class.new(specs, config: config, reporter: reporter).call
       expect(reported).to eq([['alpha', :indexed], ['beta', :indexed], ['ghost', :missing]])
     end
 

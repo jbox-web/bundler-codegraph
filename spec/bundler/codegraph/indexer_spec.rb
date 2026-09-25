@@ -23,9 +23,19 @@ RSpec.describe Bundler::Codegraph::Indexer do
   let(:config)   { Bundler::Codegraph::Config.new(env: env) }
 
   before do
+    allow(Dir).to receive(:tmpdir).and_return(root)
     FileUtils.mkdir_p([bin_path, gem_path])
     File.write(File.join(gem_path, 'dummy.rb'), "# frozen_string_literal: true\n")
     build_fake_codegraph(bin_path, log: log)
+  end
+
+  def error_log_path
+    error_log_for(root, gem_path)
+  end
+
+  def write_error_log(content)
+    FileUtils.mkdir_p(File.dirname(error_log_path), mode: 0o700)
+    File.write(error_log_path, content)
   end
 
   def build_index(witness: true)
@@ -235,6 +245,11 @@ RSpec.describe Bundler::Codegraph::Indexer do
         indexer.call
         expect(Dir).not_to have_received(:glob)
       end
+
+      it 'does not create the runtime directory, even when skipping failures' do
+        described_class.new(gem_path, name: 'dummy', config: config, skip_failed: true).call
+        expect(Dir.exist?(File.dirname(error_log_path))).to be(false)
+      end
     end
 
     context 'when the binary is pinned through the environment' do
@@ -246,7 +261,7 @@ RSpec.describe Bundler::Codegraph::Indexer do
     end
 
     context 'when codegraph exits non-zero' do
-      before { build_fake_codegraph(bin_path, log: log, exit_status: 1) }
+      before { build_fake_codegraph(bin_path, log: log, exit_status: 1, stderr: 'boom') }
 
       it 'reports a failure instead of raising' do
         expect(indexer.call).to be(:failed)
@@ -256,21 +271,179 @@ RSpec.describe Bundler::Codegraph::Indexer do
         indexer.call
         expect(Dir.exist?(index)).to be(false)
       end
+
+      it 'keeps the error output for diagnosis' do
+        indexer.call
+        expect(File.read(error_log_path)).to include('boom')
+      end
     end
 
-    context 'when indexing is interrupted' do
-      # An `Interrupt` can only be injected from inside the call that waits on the
-      # child: a real SIGINT would be trapped by RSpec itself.
+    context 'when the error log cannot be opened' do
       before do
-        # rubocop:disable-next RSpec/SubjectStub
-        allow(indexer).to receive(:system) do
-          FileUtils.mkdir_p(index)
+        allow(File).to receive(:open).and_call_original
+        allow(File).to receive(:open).with("#{error_log_path}.part", 'w', 0o600).and_raise(Errno::ENOSPC)
+      end
+
+      it 'indexes all the same' do
+        expect(indexer.call).to be(:indexed)
+      end
+    end
+
+    context 'when codegraph cannot even be started' do
+      before do
+        config.executable
+        FileUtils.rm(File.join(bin_path, 'codegraph'))
+      end
+
+      it 'reports a failure' do
+        expect(indexer.call).to be(:failed)
+      end
+
+      it 'does not record it as a codegraph failure' do
+        indexer.call
+        expect(File.exist?(error_log_path)).to be(false)
+      end
+    end
+
+    context 'when a later run succeeds' do
+      before do
+        build_fake_codegraph(bin_path, log: log, exit_status: 1, stderr: 'boom')
+        indexer.call
+        build_fake_codegraph(bin_path, log: log)
+      end
+
+      it 'drops the stale error log' do
+        indexer.call
+        expect(File.exist?(error_log_path)).to be(false)
+      end
+    end
+
+    context 'when codegraph failed on this gem directory before and failures are skipped' do
+      subject(:indexer) { described_class.new(gem_path, name: 'dummy', config: config, skip_failed: true) }
+
+      before do
+        build_fake_codegraph(bin_path, log: log, exit_status: 1)
+        indexer.call
+        build_fake_codegraph(bin_path, log: log)
+      end
+
+      it 'reports the earlier failure' do
+        expect(indexer.call).to be(:failed_before)
+      end
+
+      it 'does not run codegraph again' do
+        indexer.call
+        expect(File.read(log).lines.size).to eq(1)
+      end
+    end
+
+    context 'when a run skipping failures is interrupted' do
+      subject(:indexer) { described_class.new(gem_path, name: 'dummy', config: config, skip_failed: true) }
+
+      before { allow(Process).to receive(:wait2).and_raise(Interrupt) }
+
+      it 'does not record it as a codegraph failure' do
+        expect { indexer.call }
+          .to raise_error(Interrupt)
+          .and(not_change { File.exist?(error_log_path) }.from(false))
+      end
+    end
+
+    context 'when an earlier run left an error log' do
+      before do
+        write_error_log("#{gem_path}\nboom\n")
+        allow(Bundler::Codegraph::Lock).to receive(:synchronize) do |&block|
+          @log_seen_under_lock = File.exist?(error_log_path)
+          block.call
+        end
+      end
+
+      it 'discards it only once it holds the lock' do
+        indexer.call
+        expect(@log_seen_under_lock).to be(true)
+      end
+    end
+
+    context 'when failures are skipped and a valid index sits next to an error log' do
+      subject(:indexer) { described_class.new(gem_path, name: 'dummy', config: config, skip_failed: true) }
+
+      before do
+        build_index
+        write_error_log("#{gem_path}\nsync failed\n")
+      end
+
+      it 'reports the index' do
+        expect(indexer.call).to be(:already_indexed)
+      end
+    end
+
+    context 'when failures are skipped but the failed log belongs to another directory' do
+      subject(:indexer) { described_class.new(gem_path, name: 'dummy', config: config, skip_failed: true) }
+
+      before do
+        write_error_log("#{root}/elsewhere/dummy-1.0.0\nboom\n")
+      end
+
+      it 'indexes the directory' do
+        expect(indexer.call).to be(:indexed)
+      end
+    end
+
+    context 'when codegraph failed on this gem directory before and failures are retried' do
+      before do
+        build_fake_codegraph(bin_path, log: log, exit_status: 1)
+        indexer.call
+        build_fake_codegraph(bin_path, log: log)
+      end
+
+      it 'indexes it' do
+        expect(indexer.call).to be(:indexed)
+      end
+    end
+
+    # The interrupt reaches Ruby alone (SIGTERM to the process, not its group):
+    # codegraph keeps running unless the indexer stops it. It is raised from
+    # the wait, where it lands in real life; a real signal would be trapped by
+    # RSpec itself.
+    context 'when indexing is interrupted' do
+      let(:pid_file) { "#{log}.pid" }
+
+      before do
+        build_fake_codegraph(bin_path, log: log, hang: true)
+        allow(Process).to receive(:wait2) do
+          sleep 0.01 until File.exist?(pid_file) && !File.empty?(pid_file)
           raise Interrupt
         end
       end
 
       it 'removes the partial index and lets the interrupt through' do
         expect { indexer.call }.to raise_error(Interrupt).and(not_change { Dir.exist?(index) }.from(false))
+      end
+
+      def call_interrupted
+        indexer.call
+      rescue Interrupt
+        nil
+      end
+
+      it 'stops codegraph before cleaning up' do
+        call_interrupted
+        expect { Process.kill(0, Integer(File.read(pid_file))) }.to raise_error(Errno::ESRCH)
+      end
+    end
+
+    context 'when codegraph is killed by a signal, e.g. the OOM killer' do
+      subject(:indexer) { described_class.new(gem_path, name: 'dummy', config: config, skip_failed: true) }
+
+      before { build_fake_codegraph(bin_path, log: log, self_kill: true) }
+
+      it 'reports a failure' do
+        expect(indexer.call).to be(:failed)
+      end
+
+      it 'does not record it as a codegraph failure' do
+        indexer.call
+        expect(File.exist?(error_log_path)).to be(false)
       end
     end
 

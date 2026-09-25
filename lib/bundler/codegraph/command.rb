@@ -41,8 +41,8 @@ module Bundler
         Bundler.definition.specs.select { |spec| Codegraph.dependency?(spec, root) }
       end
 
-      def report(name, status)
-        Bundler.ui.info("#{name}: #{STATUS_LABELS.fetch(status, status)}")
+      def report(name, status, log_hint)
+        Bundler.ui.info("#{name}: #{STATUS_LABELS.fetch(status, status)}#{log_hint}")
       end
 
       def summary(results)
