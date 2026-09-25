@@ -21,12 +21,19 @@ module Bundler
 
       # Runs the block while holding the exclusive lock. Filesystems without
       # working advisory locks degrade to running unserialized rather than failing.
+      #
+      # Only opening and locking may fall back: an error raised by the block
+      # itself propagates, rather than running the block a second time, unlocked.
       def self.synchronize
+        locked = false
         File.open(path, File::RDWR | File::CREAT, 0o644) do |file|
           file.flock(File::LOCK_EX)
+          locked = true
           return yield
         end
       rescue SystemCallError, NotImplementedError
+        raise if locked
+
         yield
       end
     end
