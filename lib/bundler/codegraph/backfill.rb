@@ -10,16 +10,18 @@ module Bundler
     # `bundle codegraph-index` runs to catch up.
     class Backfill
 
-      attr_reader :specs, :config, :force, :reporter
+      attr_reader :specs, :config, :force, :sync, :reporter
 
       # @param specs [Enumerable] objects responding to `name` and `full_gem_path`
       # @param config [Config]
       # @param force [Boolean] rebuild indexes that already exist
+      # @param sync [Boolean] run `codegraph sync` on indexes that already exist
       # @param reporter [#call, nil] called with (name, status) after each gem
-      def initialize(specs, config: Config.new, force: false, reporter: nil)
+      def initialize(specs, config: Config.new, force: false, sync: false, reporter: nil)
         @specs    = specs
         @config   = config
         @force    = force
+        @sync     = sync
         @reporter = reporter
       end
 
@@ -35,7 +37,7 @@ module Bundler
       private
 
       def index(spec)
-        Indexer.new(spec.full_gem_path, name: spec.name, config: config, force: force).call
+        Indexer.new(spec.full_gem_path, name: spec.name, config: config, force: force, sync: sync).call
       end
     end
   end

@@ -32,19 +32,24 @@ RSpec.configure do |config|
 end
 
 # Build a fake `codegraph` executable that records its arguments in a log file
-# and creates the `.codegraph` directory, so the indexer can be exercised end to
-# end without the real binary.
+# and, on `init`, creates the `.codegraph` directory and its database (even when
+# told to fail, like the real binary does), so the indexer can be exercised end
+# to end without the real binary.
 def build_fake_codegraph(dir, log:, exit_status: 0)
   path = File.join(dir, 'codegraph')
   File.write(path, <<~SHELL)
     #!/bin/sh
     echo "$@" >> "#{log}"
-    if [ "$1" = "init" ]; then mkdir -p "$2/.codegraph"; fi
+    if [ "$1" = "init" ]; then
+      mkdir -p "$2/.codegraph" && : > "$2/.codegraph/codegraph.db"
+    fi
     exit #{exit_status}
   SHELL
   File.chmod(0o755, path)
   path
 end
+
+RSpec::Matchers.define_negated_matcher :not_change, :change
 
 # Load our gem
 require 'bundler/codegraph'

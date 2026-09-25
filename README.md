@@ -93,9 +93,12 @@ Nothing to run: each gem is indexed right after Bundler installs it.
 A bundle that is already in place needs one catch-up pass:
 
 ```bash
-bundle codegraph-index          # index every gem of the bundle that has none
+bundle codegraph-index          # index every gem that has none, sync the others
 bundle codegraph-index --force  # rebuild all of them
 ```
+
+Without `--force`, an index already in place goes through `codegraph sync`,
+which also completes an index a killed run left partial.
 
 Both walk the *resolved* bundle (`Bundler.definition.specs`, minus `bundler`
 itself), not the contents of `.bundle/ruby/*/gems/`. Stale checkouts and older
@@ -157,6 +160,11 @@ properties of that hook are deliberate:
   and is swallowed. An exception raised from a Bundler hook aborts the entire
   `bundle install`, and a failed index is never a good enough reason to break
   someone's install.
+- *It never leaves a partial index.* `codegraph init` creates `.codegraph/`
+  before it starts indexing, so a run that fails or is interrupted (Ctrl-C
+  included) has its `.codegraph/` removed rather than left for the next run to
+  mistake for a complete index. `--force` sets the previous index aside and puts
+  it back when the rebuild fails.
 - *It serializes.* Bundler calls the hook from each of its `BUNDLE_JOBS`
   parallel install workers, and `codegraph` is itself multi-threaded and already
   saturates several cores. Left alone, a cold `bundle install` would start a
@@ -168,7 +176,10 @@ properties of that hook are deliberate:
 *actually installs*, which means a bundle already sitting on disk — the usual
 case when the plugin is added to an existing project — would never get a single
 index. The command is the catch-up pass, and reports a per-gem status so it is
-obvious what was skipped and why.
+obvious what was skipped and why. It is also the repair pass: it runs
+`codegraph sync` on every index already there, which completes one a killed
+`bundle install` left partial — something the hook cannot see, since it skips
+existing indexes to keep `bundle install` fast.
 
 ## Configuration
 
@@ -188,9 +199,10 @@ Expect an index to weigh roughly **four times the gem's source**: rack 3.2.6 is
 528 kB on disk and produces a 2.1 MB index, built in under a second. Scaled to a
 real application — a ~400-gem bundle — that is a few minutes for the initial
 catch-up pass and somewhere around 600 MB under `.bundle/`. Gems holding no Ruby
-source at all are skipped, as are gems that already carry a `.codegraph/`
-directory, so the steady-state cost after the first pass is only whatever
-`bundle update` brings in.
+source at all are skipped, and the hook skips gems that already carry a
+`.codegraph/` directory, so the steady-state cost after the first pass is only
+whatever `bundle update` brings in. `bundle codegraph-index` syncs those
+existing indexes instead, at a fraction of a second each on a healthy one.
 
 `.bundle/` is usually already git-ignored; `path:` sources are not, hence the
 `.gitignore` note above.

@@ -58,6 +58,10 @@ RSpec.describe Bundler::Codegraph::Backfill do
       it 'reindexes it when forced' do
         expect(described_class.new(specs, config: config, force: true).call).to eq(indexed: 2, missing: 1)
       end
+
+      it 'synchronizes it when asked' do
+        expect(described_class.new(specs, config: config, sync: true).call).to eq(synced: 2, missing: 1)
+      end
     end
   end
 end

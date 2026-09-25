@@ -5,8 +5,10 @@ module Bundler
 
     # `bundle codegraph-index [--force]`
     #
-    # Indexes every gem of the current bundle. Loaded only from `plugins.rb`, so
-    # the rest of the gem stays testable without Bundler's plugin API.
+    # Indexes every gem of the current bundle, and runs `codegraph sync` on the
+    # indexes already there — which also completes one a killed run left
+    # partial. Loaded only from `plugins.rb`, so the rest of the gem stays
+    # testable without Bundler's plugin API.
     class Command < Bundler::Plugin::API
 
       FORCE_FLAG = '--force'
@@ -14,6 +16,7 @@ module Bundler
       # Labels for the statuses worth reporting; anything else is silent noise.
       STATUS_LABELS = {
         indexed:         'indexed',
+        synced:          'synchronized',
         already_indexed: 'already indexed',
         excluded:        'excluded',
         no_ruby:         'no Ruby source',
@@ -26,7 +29,7 @@ module Bundler
       def exec(_command_name, args)
         force = args.include?(FORCE_FLAG)
 
-        results = Backfill.new(gem_specs, force: force, reporter: method(:report)).call
+        results = Backfill.new(gem_specs, force: force, sync: true, reporter: method(:report)).call
 
         Bundler.ui.info("\n#{summary(results)}")
       end
