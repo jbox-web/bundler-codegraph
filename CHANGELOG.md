@@ -11,4 +11,5 @@ First release!
 * Sync existing indexes from `bundle codegraph-index`, which completes one a killed run left partial
 * Remove the `.codegraph/` directory of a failed or interrupted run, and restore the previous index when a `--force` rebuild fails
 * Turn the plugin into a no-op when the `codegraph` binary is missing, rather than failing the install
+* Run `codegraph` with its stdin on `/dev/null`, so a prompt it would show can never hang `bundle install`
 * Add the `BUNDLER_CODEGRAPH`, `BUNDLER_CODEGRAPH_EXCLUDE` and `BUNDLER_CODEGRAPH_BIN` environment variables

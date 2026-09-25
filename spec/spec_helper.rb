@@ -35,13 +35,17 @@ end
 # and, on `init`, creates the `.codegraph` directory and its database (even when
 # told to fail, like the real binary does), so the indexer can be exercised end
 # to end without the real binary.
-def build_fake_codegraph(dir, log:, exit_status: 0)
+#
+# `probe_stdin` makes `init` read one line from its standard input and log it,
+# which is how a spec can tell whether the indexer hands its own stdin over.
+def build_fake_codegraph(dir, log:, exit_status: 0, probe_stdin: false)
   path = File.join(dir, 'codegraph')
   File.write(path, <<~SHELL)
     #!/bin/sh
     echo "$@" >> "#{log}"
     if [ "$1" = "init" ]; then
       mkdir -p "$2/.codegraph" && : > "$2/.codegraph/codegraph.db"
+      #{probe_stdin ? %(IFS= read -r line && echo "stdin:$line" >> "#{log}") : ':'}
     fi
     exit #{exit_status}
   SHELL

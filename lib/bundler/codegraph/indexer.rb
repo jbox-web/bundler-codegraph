@@ -152,8 +152,12 @@ module Bundler
         codegraph('sync') ? :synced : :failed
       end
 
+      # stdin is closed off too: codegraph prompts on it in some setups (live
+      # watching disabled, a Git checkout), and with its output going to
+      # /dev/null the question would be invisible and `bundle install` would
+      # hang on it. At EOF the prompt is cancelled and codegraph moves on.
       def codegraph(command)
-        system(executable, command, path, out: File::NULL, err: File::NULL)
+        system(executable, command, path, in: File::NULL, out: File::NULL, err: File::NULL)
       end
 
       def index_path

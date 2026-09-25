@@ -253,5 +253,27 @@ RSpec.describe Bundler::Codegraph::Indexer do
         expect { indexer.call }.to raise_error(Interrupt).and(not_change { Dir.exist?(index) }.from(false))
       end
     end
+
+    # A codegraph prompt reading the terminal would hang `bundle install`
+    # behind an invisible question, since its output goes to /dev/null.
+    context 'when the process stdin carries data' do
+      around do |example|
+        reader, writer = IO.pipe
+        writer.puts('ping')
+        writer.close
+        saved = $stdin.dup
+        $stdin.reopen(reader)
+        example.run
+      ensure
+        $stdin.reopen(saved)
+      end
+
+      before { build_fake_codegraph(bin_path, log: log, probe_stdin: true) }
+
+      it 'does not hand it over to codegraph' do
+        indexer.call
+        expect(File.read(log)).not_to include('stdin:ping')
+      end
+    end
   end
 end
