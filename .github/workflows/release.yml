@@ -5,7 +5,8 @@ permissions: {}
 
 # Run manually from master, once the version bump and the dated CHANGELOG entry
 # are pushed: `bundle exec rake release` builds the gem, creates and pushes the
-# `vX.Y.Z` tag, then pushes the gem to RubyGems.org.
+# `vX.Y.Z` tag, then pushes the gem to RubyGems.org; a GitHub release is then
+# created on that tag, with the version's CHANGELOG entry as its notes.
 on:
   workflow_dispatch:
 
@@ -21,7 +22,8 @@ jobs:
       # Trusted Publishing: RubyGems.org trades the OIDC token for a short-lived
       # API key, so no RubyGems secret is stored in the repository.
       id-token: write
-      # `rake release` pushes the version tag.
+      # `rake release` pushes the version tag, and `gh release create` needs it
+      # too.
       contents: write
 
     steps:
@@ -38,3 +40,19 @@ jobs:
 
       - name: Release
         uses: rubygems/release-gem@v1
+
+      # rubygems/release-gem only tags and pushes the gem. The notes are the
+      # CHANGELOG section headed `## <version> `, up to the next heading. A
+      # rerun after a partial failure finds the release already there and
+      # leaves it alone.
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(ruby -r ./lib/bundler/codegraph/version -e 'print Bundler::Codegraph::VERSION::STRING')"
+          if gh release view "v${version}" >/dev/null 2>&1; then
+            echo "Release v${version} already exists."
+            exit 0
+          fi
+          awk -v heading="## ${version} " 'index($0, heading) == 1 { found = 1; next } found && /^## / { exit } found' CHANGELOG.md > release-notes.md
+          gh release create "v${version}" --title "v${version}" --notes-file release-notes.md --verify-tag
