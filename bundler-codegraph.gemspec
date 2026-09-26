@@ -15,6 +15,13 @@ Gem::Specification.new do |s|
 
   s.required_ruby_version = '>= 3.2.0'
 
+  # Pinned to the version tag `rake release` creates, so each version's page on
+  # RubyGems.org links to the code and the changelog as they were at that version.
+  s.metadata = {
+    'source_code_uri' => "#{s.homepage}/tree/v#{s.version}",
+    'changelog_uri'   => "#{s.homepage}/blob/v#{s.version}/CHANGELOG.md",
+  }
+
   # What the plugin needs at run time, plus its docs. Listed rather than taken
   # from `git ls-files`, which shipped the specs, binstubs and CI config, and
   # silently produced an empty gem outside a Git checkout. `base:` rather than
